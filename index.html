@@ -1062,7 +1062,7 @@ input[type="range"]{accent-color:var(--accent); width:100%;}
           <ul>
             <li><b>Normal score</b> (default, the Standardised Groundwater level Index idea of Bloomfield and Marchant, 2013): each well's annual values are ranked, <i>r</i> = 1…<i>n</i>, and converted with Blom's formula: <i>z</i> = Φ<sup>−1</sup>((<i>r</i> − 3/8) / (<i>n</i> + 1/4)), where Φ<sup>−1</sup> is the inverse standard normal. Robust to outliers and skew.</li>
             <li><b>Z-score:</b> <i>z</i> = (<i>x</i> − mean) / standard deviation of the well's annual values.</li>
-            <li><b>Chain-linked change (ft):</b> the composite starts at 0. Each year is linked to the earlier plotted year that shares the most wells, and its step is the median (or mean) change of the wells measured in both years. The result is cumulative change in feet. It keeps real units but can drift where few wells link.</li>
+            <li><b>Chain-linked change (ft):</b> the chain starts at the best-measured year and grows both ways: each year is linked to the already-linked year that shares the most wells (earlier or later; ties go to the closer year), and its step is the median (or mean) change of the wells measured in both years. The result is cumulative change in feet, shifted so the first plotted year is 0. It keeps real units but can drift where few wells link.</li>
           </ul>
           For depth to water, values are multiplied by −1 before standardizing, so a rising water table plots upward.</li>
         <li><b>Composite:</b> for each year, the median (dashed) and mean (solid) across the wells with a value that year. A year with fewer wells than <i>Min. wells per year</i> (default 5) is left empty and its bar turns red. Years with fewer than 10 wells get hollow markers.</li>
@@ -1580,7 +1580,7 @@ for(let s=0; s<NSITES; s++){
 function hasElevation(s){ return !isNaN(siteElevation[s]); }
 const escHtml = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // ---- precomputed kriged averages (kriged/ next to the page, or the published GitHub Pages copy) ----
-const KRIG_FALLBACK = 'https://steeltapejockey.github.io/Composite-Hydrograph-Dashboard/kriged/';
+const KRIG_FALLBACK = 'https://steeltapejockey.github.io/WeaverAPI-Hydrograph-Explorer/kriged/';
 let krigBaseP = null; const krigFiles = new Map();
 function krigBase(){
   if(!krigBaseP) krigBaseP = (async()=>{
@@ -2015,7 +2015,7 @@ async function litLoad(){
   if(!litIsOn()){ if(st) st.textContent = 'Off: only API readings (and any file you add below) are used.'; return; }
   try{
     let r = null;
-    for(const u of ['literature-readings.csv', 'https://steeltapejockey.github.io/Composite-Hydrograph-Dashboard/literature-readings.csv']){
+    for(const u of ['literature-readings.csv', 'https://steeltapejockey.github.io/WeaverAPI-Hydrograph-Explorer/literature-readings.csv']){
       try{ const x = await fetch(u, {cache:'no-cache'}); if(x.ok){ r = x; break; } }catch(e){}
     }
     if(!r){ if(st) st.textContent = location.protocol === 'file:' ? 'This page was opened from your computer, and the browser does not let it read literature-readings.csv beside it; the GitHub site copy was not found either. Upload the file to GitHub and open the page from the GitHub site.' : 'No literature-readings.csv found next to this page, so only API readings are used.'; return; }
@@ -3714,31 +3714,35 @@ function otMapOf(w){ const m = state.otp.method; return m === 'ns' ? w.mapNs : m
 function otCompose(maps, years, mode, minN){
   const L = years.length, med = new Array(L).fill(null), mean = new Array(L).fill(null), n = new Array(L).fill(0);
  if(mode === 'chain'){
-    // Each year is linked to the EARLIER plotted year that shares the most wells (ties: the later year), so a year
-    // with few wells does not break the chain for the years after it. Only wells measured in both years count.
-    const anchor = new Array(L).fill(null), plotted = [];
+    // Start at the year with the most wells and grow the chain one year at a time, always adding the unlinked year
+    // that shares the most wells with a year already linked (ties: the closer year). Its step is the median (mean)
+    // change of the wells measured in both. This is a maximum spanning tree over years, so a thin year early in the
+    // record cannot strand the rest. The result is then shifted so the first plotted year is 0.
+    const anchor = new Array(L).fill(null);
     const present = years.map(y=>{ const ix = []; for(let w=0; w<maps.length; w++) if(maps[w].has(y)) ix.push(w); return ix; });
-    for(let i=0;i<L;i++){
-      const y = years[i];
-      if(!plotted.length){
-        n[i] = present[i].length;
-        if(n[i] >= minN){ med[i] = 0; mean[i] = 0; plotted.push(i); }
-        continue;
-      }
-      let best = -1, bestN = 0;
-      for(const k of plotted){
-        const ky = years[k]; let c = 0;
-        for(const w of present[i]) if(maps[w].has(ky)) c++;
-        if(c > bestN || (c === bestN && c > 0 && k > best)){ best = k; bestN = c; }
-      }
-      n[i] = bestN;
-      if(best < 0 || bestN < minN) continue;
-      const ky = years[best], d = [];
-      for(const w of present[i]){ const a0 = maps[w].get(ky); if(a0 !== undefined) d.push(maps[w].get(y) - a0); }
-      med[i] = med[best] + OT.median(d);
-      mean[i] = mean[best] + d.reduce((x,v)=>x+v,0)/d.length;
-      anchor[i] = ky; plotted.push(i);
+    let root = -1, rootN = 0;
+    for(let i=0;i<L;i++) if(present[i].length > rootN){ root = i; rootN = present[i].length; }
+    if(root < 0 || rootN < minN){ for(let i=0;i<L;i++) n[i] = present[i].length; return {med, mean, n, anchor}; }
+    // shared-well counts between every pair of years
+    const yi = new Map(years.map((y,i)=>[y,i])), S = Array.from({length:L}, ()=>new Int32Array(L));
+    for(const m of maps){ const ix = []; m.forEach((v,y)=>{ const i = yi.get(y); if(i !== undefined) ix.push(i); });
+      for(let p=0;p<ix.length;p++) for(let q=p+1;q<ix.length;q++){ S[ix[p]][ix[q]]++; S[ix[q]][ix[p]]++; } }
+    const inT = new Uint8Array(L), bestN = new Int32Array(L), bestP = new Int32Array(L).fill(-1);
+    const add = i=>{ inT[i] = 1; for(let j=0;j<L;j++) if(!inT[j]){ const c = S[j][i];
+      if(c > bestN[j] || (c === bestN[j] && c > 0 && Math.abs(i-j) < Math.abs(bestP[j]-j))){ bestN[j] = c; bestP[j] = i; } } };
+    med[root] = 0; mean[root] = 0; n[root] = rootN; add(root);
+    for(;;){
+      let j = -1;
+      for(let t=0;t<L;t++) if(!inT[t] && bestN[t] >= minN && (j < 0 || bestN[t] > bestN[j] || (bestN[t] === bestN[j] && Math.abs(bestP[t]-t) < Math.abs(bestP[j]-j)))) j = t;
+      if(j < 0) break;
+      const p = bestP[j], ky = years[p], y = years[j], d = [];
+      for(const w of present[j]){ const a0 = maps[w].get(ky); if(a0 !== undefined) d.push(maps[w].get(y) - a0); }
+      med[j] = med[p] + OT.median(d); mean[j] = mean[p] + d.reduce((x,v)=>x+v,0)/d.length;
+      n[j] = d.length; anchor[j] = ky; add(j);
     }
+    for(let i=0;i<L;i++) if(!inT[i]) n[i] = bestN[i];
+    const f = med.findIndex(v=>v != null), m0 = med[f], a0 = mean[f];
+    for(let i=0;i<L;i++) if(med[i] != null){ med[i] -= m0; mean[i] -= a0; }
     return {med, mean, n, anchor};
   }
   for(let i=0;i<L;i++){
@@ -3812,7 +3816,7 @@ function refreshScheduleUI(){ /* the old year-schedule chips are gone; kept so o
 const OT_METHOD_HINT = {
   ns:'Each well\'s annual values are ranked and turned into normal scores (Blom), so every well has the same distribution regardless of depth or range (the SGI idea of Bloomfield & Marchant 2013, on annual values). Units are standard deviations; up = more water.',
   z:'Each well\'s annual values minus its own mean, divided by its own standard deviation. Units are standard deviations; up = more water. More sensitive to a single extreme year than normal scores.',
-  chain:'Feet of change since the first plotted year. Each year is linked to the earlier plotted year that shares the most wells, and its step is the median change of the wells measured in both years, so wells joining or leaving the record cannot create false steps and a thin year does not break the chain.'
+  chain:'Feet of change since the first plotted year. The chain starts at the best-measured year; each year is linked to the already-linked year that shares the most wells (earlier or later), and its step is the median change of the wells measured in both years, so wells joining or leaving the record cannot create false steps and a thin year does not break the chain.'
 };
 function syncOtUi(){
   const o = state.otp;
@@ -4135,7 +4139,7 @@ function updateExplainPanel(result, set, allExcluded){
   // 3. Method
   parts.push(`Method (Over the Top): each well gets one value per year (${o.annual==='median' ? 'the median of its monthly values' : 'the reading-weighted mean'}), years that jump more than ${o.spike} ft/yr from both neighbours are dropped${o.spike ? '' : ' (spike filter off)'}, and a well needs at least ${o.minYears} years of data spanning at least ${o.minSpan} years. ` +
     (o.method === 'chain'
-      ? `The composite is a chain of changes in feet, starting at 0: each year is linked to the earlier plotted year that shares the most wells, and its step is the median change of the wells measured in both years.`
+      ? `The composite is a chain of changes in feet, starting at 0: the chain starts at the best-measured year and each year is linked to the already-linked year that shares the most wells (earlier or later), and its step is the median change of the wells measured in both years.`
       : `Each well is then rescaled to ${o.method === 'ns' ? 'normal scores' : 'z-scores'} so deep and shallow wells count equally, and each year shows the median across wells (up = more water).`) +
     ` A year is drawn only if at least ${o.minN} wells have a value in it; a well counts in every year it was measured, and nothing is shifted between years or interpolated.`);
   if(state.group.mode !== 'off') parts.push(state.group.mode === 'cluster'
