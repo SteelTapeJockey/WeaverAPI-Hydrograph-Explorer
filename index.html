@@ -534,9 +534,10 @@ input[type="range"]{accent-color:var(--accent); width:100%;}
           <option value="exclude">Exclude multi-agency wells</option>
           <option value="keepNm">De-duplicate: keep NMBGMR record only</option>
           <option value="keepOther">De-duplicate: keep other-agency record only</option>
-          <option value="dedupe" selected>De-duplicate: one well per cluster (NMBGMR first, else longest record)</option>
+          <option value="merge" selected>Merge: one well per cluster with every agency's readings (duplicates counted once)</option>
+          <option value="dedupe">De-duplicate: one well per cluster, its own record only (NMBGMR first, else longest record)</option>
         </select>
-        <p class="hint">Links come from the NM Unified Water Data API's cross-agency clusters (and NMBGMR's cross-reference IDs); <span id="multi-count">692</span> wells are linked. The same physical well can appear twice (once per agency); de-duplicating stops it counting twice in a composite.</p>
+        <p class="hint">Links come from the NM Unified Water Data API's cross-agency clusters (and NMBGMR's cross-reference IDs); <span id="multi-count">692</span> wells are linked. The same physical well can appear twice (once per agency); <b>Merge</b> (default) combines the agencies' records into one well, listed under NMBGMR where it has one, else the longest record. A month that two agencies report with the same value (within 0.05 ft) is the same measurement stored twice, so it is counted once; different values in the same month are both kept. <span id="merge-note"></span></p>
       </div>
 
       <div class="section" id="sec-readq">
@@ -1046,7 +1047,7 @@ input[type="range"]{accent-color:var(--accent); width:100%;}
       <h3 id="h-prep">Preparing readings</h3>
       <ul>
         <li><b>Reading quality:</b> uses the API's qualifier, approval status and measurement type per reading. The options keep static levels only, drop pumping or otherwise affected readings, keep approved data only, or include or exclude continuous-logger readings.</li>
-        <li><b>Multi-agency wells:</b> one physical well can appear under two agencies. The default keeps one well per cross-agency cluster (NMBGMR first, else the longest record), so a well is not counted twice. The links come from the API's cross-agency clusters and NMBGMR cross-reference IDs.</li>
+        <li><b>Multi-agency wells:</b> one physical well can appear under two agencies. The default (<b>Merge</b>) makes each cross-agency cluster one well carrying every agency's readings, listed under NMBGMR where it has one, else under the longest record. A month that two agencies report with the same monthly value (within 0.05 ft) is the same measurement stored twice and is counted once; different values in the same month are both kept. Since the composite uses one value per month, a duplicate can never count twice. Other options keep only one agency's record, or exclude or isolate multi-agency wells. The links come from the API's cross-agency clusters and NMBGMR cross-reference IDs.</li>
         <li><b>Likely data-entry errors</b> (Data quality): a monthly or yearly value is flagged when it lies outside both of its neighbours by at least <i>t</i> × 25 ft and by more than <i>t</i> × √<i>n</i> of the neighbours' size (<i>n</i> = readings behind the value), and by more than 1.5 times the gap between the neighbours. <i>t</i> = 0.6 (Lenient, default), 0.4 (Moderate) or 0.25 (Strict). Flagged values are left out; the table lists them.</li>
         <li><b>Season:</b> only readings in the chosen months count, before anything else is computed. A range across the new year counts as one season: Winter (Nov–Feb) 2020 is Nov–Dec 2019 plus Jan–Feb 2020. Winter levels are least affected by irrigation pumping.</li>
         <li><b>Water years</b> (optional): October–September, labelled by the year it ends, as in Myers (2022).</li>
@@ -1746,6 +1747,7 @@ const NMBGMR_LINKS_RAW = [["USGS-350726106222701","BC-0008","","82"],["USGS-3507
 const clusterPeers = new Map();   // site idx -> [peer site idx at other agencies] (from the API's nm_well_correlation clusters)
 const clusterInfo = new Map();    // site idx -> {cid, linked, method, conf}
 const clusterDropSet = new Set(); // wells dropped by the "one well per cluster" de-duplication filter
+const clusterKeep = new Map();     // dropped well -> the well that represents its cluster (receives its readings when merging)
 const nmbgmrOfOther = new Map();   // other-agency well index -> {idx, id, alt}
 const otherOfNmbgmr = new Map();   // NMBGMR well index -> [{idx, id, source}]
 {
@@ -2152,7 +2154,7 @@ function defaultFilters(){
     studyArea:new Set([...STUDY_AREA_NAMES.map((_,i)=>i), -1]),
     formation:new Set([...FORMATIONS.map((_,i)=>i), -1]),
     usgsAq:new Set([...AQUIFERS.map((_,i)=>i), -1]),
-    formationSearch:'', multiAgency:'dedupe',
+    formationSearch:'', multiAgency:'merge',
     api:{slopeMin:null, slopeMax:null, sig:false, cat:'', span:null, obsYr:null, recentYrs:null, status:'', mcl:'', wtype:'', cb:null, hard:'', tds:''},
     depthMin:null, depthMax:null, depthRequire:false, dtwMin:null, dtwMax:null, yearMin:null, yearMax:null, minYears:null
   };
@@ -2163,7 +2165,7 @@ const state = {
     sources: new Set(SOURCES.map((_,i)=>i)),
     aquiferExt: new Set([...AQUIFER_EXTENT_NAMES.map((_,i)=>i), -1]),
     studyArea: new Set([...STUDY_AREA_NAMES.map((_,i)=>i), -1]),
-    formationSearch:'', multiAgency:'dedupe',
+    formationSearch:'', multiAgency:'merge',
     formation: null, usgsAq: null,
     depthMin:null, depthMax:null, depthRequire:false,
     dtwMin:null, dtwMax:null,
@@ -2799,9 +2801,9 @@ document.getElementById('depth-require').addEventListener('change', e=>{
   state.filters.depthRequire = e.target.checked;
   recomputeActiveSet();
 });
-document.getElementById('multi-agency-select').addEventListener('change', e=>{ state.filters.multiAgency = e.target.value; recomputeActiveSet(); });
+document.getElementById('multi-agency-select').addEventListener('change', e=>{ state.filters.multiAgency = e.target.value; if(!syncMerge()) recomputeActiveSet(); });
 document.getElementById('reset-filters').addEventListener('click', ()=>{
-  state.filters = defaultFilters(); state._selSig = null; if(typeof afterFilterReset==='function') afterFilterReset(); document.getElementById('multi-agency-select').value='dedupe';
+  state.filters = defaultFilters(); state._selSig = null; if(typeof afterFilterReset==='function') afterFilterReset(); document.getElementById('multi-agency-select').value='merge'; syncMerge();
   document.querySelectorAll('#source-list input[type=checkbox], #aquifer-list input[type=checkbox], #studyarea-list input[type=checkbox], #formation-list input[type=checkbox], #usgsaq-list input[type=checkbox]').forEach(cb=>cb.checked=true);
   ['depth-min','depth-max','dtw-min','dtw-max','year-min','year-max','min-years'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('depth-require').checked=false;
@@ -2822,7 +2824,7 @@ function passesFilters(s){
     if(f.multiAgency === 'exclude' && multi) return false;
     if(f.multiAgency === 'keepNm' && nmbgmrOfOther.has(s)) return false;      // drop the partner-agency copy
     if(f.multiAgency === 'keepOther' && otherOfNmbgmr.has(s)) return false;   // drop the NMBGMR copy
-    if(f.multiAgency === 'dedupe' && clusterDropSet.has(s)) return false;     // one well per cross-agency cluster
+    if((f.multiAgency === 'dedupe' || f.multiAgency === 'merge') && clusterDropSet.has(s)) return false;     // one well per cross-agency cluster
   }
   {
     const ae = rec[15];
@@ -2991,7 +2993,7 @@ function resetEverything(keepArea){
   }
 
   // filters back to defaults
-  state.filters = defaultFilters(); state._selSig = null; if(typeof afterFilterReset==='function') afterFilterReset(); { const ms=document.getElementById('multi-agency-select'); if(ms) ms.value='dedupe'; }
+  state.filters = defaultFilters(); state._selSig = null; if(typeof afterFilterReset==='function') afterFilterReset(); { const ms=document.getElementById('multi-agency-select'); if(ms) ms.value='merge'; syncMerge(); }
   document.querySelectorAll('#source-list input[type=checkbox], #aquifer-list input[type=checkbox], #studyarea-list input[type=checkbox], #formation-list input[type=checkbox], #usgsaq-list input[type=checkbox]').forEach(cb=>cb.checked=true);
   ['depth-min','depth-max','dtw-min','dtw-max','year-min','year-max','min-years'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('depth-require').checked=false;
@@ -3329,8 +3331,8 @@ function identifyPopupContent(h){
   if(h.huc>=0){
     const f = hucFeatures[h.huc]; head('HUC-8 subbasin');
     row('#5a8f8c', f.properties.name, '('+f.properties.huc8+')', ()=>{
-      setAreaSelection({type:'huc', polygons:extractPolygonsFromGeoJSON(f), label:'HUC-8: '+f.properties.name});
       document.getElementById('huc-select').value = String(h.huc);
+      selectHuc8(h.huc);
     });
   }
   return root;
@@ -3371,13 +3373,16 @@ document.getElementById('county-select').addEventListener('change', e=>{
   const polys = extractPolygonsFromGeoJSON(f);
   setAreaSelection({type:'county', polygons:polys, label:'County: '+f.properties.NAME});
 });
-document.getElementById('huc-select').addEventListener('change', e=>{
-  const i = e.target.value;
-  if(i==='') return;
+function selectHuc8(i){
   const f = hucFeatures[+i];
   const polys = extractPolygonsFromGeoJSON(f);
   setAreaSelection({type:'huc', polygons:polys, label:'HUC-8: '+f.properties.name, huc:String(f.properties.huc8)});
   loadHuc10List(String(f.properties.huc8));
+}
+document.getElementById('huc-select').addEventListener('change', e=>{
+  const i = e.target.value;
+  if(i==='') return;
+  selectHuc8(i);
 });
 /* ---- HUC-10s of the chosen HUC-8 (file next to the page first, else live from USGS WBD) ---- */
 let huc10Features = [];
@@ -5211,7 +5216,7 @@ async function apiLoadClusters(){
       const j = apiSiteIdx(tok.slice(0,k), tok.slice(k+1)); if(j != null) g.members.add(j);
     });
   }
-  clusterPeers.clear(); clusterInfo.clear(); clusterDropSet.clear();
+  clusterPeers.clear(); clusterInfo.clear(); clusterDropSet.clear(); clusterKeep.clear();
   let nClusters = 0;
   groups.forEach((g, cid)=>{
     const mem = [...g.members];
@@ -5233,12 +5238,12 @@ async function apiLoadClusters(){
       });
     }
     const keep = nm != null ? nm : mem.slice().sort((a,b)=>(SITES[b][5]||0)-(SITES[a][5]||0))[0];
-    mem.forEach(o=>{ if(o !== keep) clusterDropSet.add(o); });
+    mem.forEach(o=>{ if(o !== keep){ clusterDropSet.add(o); clusterKeep.set(o, keep); } });
   });
   // static NMBGMR pairs that the API did not return still de-duplicate sensibly
-  otherOfNmbgmr.forEach((list, n)=> list.forEach(o=>{ if(!clusterInfo.has(o.idx)) clusterDropSet.add(o.idx); }));
+  otherOfNmbgmr.forEach((list, n)=> list.forEach(o=>{ if(!clusterInfo.has(o.idx)){ clusterDropSet.add(o.idx); if(!clusterKeep.has(o.idx)) clusterKeep.set(o.idx, n); } }));
   apiState.clusters = {n:nClusters, wells:clusterPeers.size};
-  refreshMultiRings(); recomputeActiveSet(); renderLegend();
+  refreshMultiRings(); mergeApplied = null; if(!syncMerge()) recomputeActiveSet(); renderLegend();
   const el = document.getElementById('multi-count'); if(el) el.textContent = isFinite(apiState.clusters.wells) ? apiState.clusters.wells.toLocaleString() : '';
   return apiState.clusters;
 }
@@ -5473,8 +5478,60 @@ function readPass(){
     return true;
   };
 }
+let mergeApplied = null;
+// true when the data had to be rebuilt (applyReadingQuality also refreshes the selection)
+function syncMerge(){
+  const want = state.filters.multiAgency === 'merge' && clusterKeep.size > 0;
+  if(want === mergeApplied) return false;
+  applyReadingQuality(); return true;
+}
+// Fold each cluster's other-agency rows into the well that represents it. Month rows: a month whose value matches
+// (within 0.05 ft) a month already in the merged record is the same measurement stored twice and is skipped.
+function mergeClusterRows(siteMonth, siteYear){
+  const stats = {wells:0, monthsAdded:0, monthsDup:0};
+  if(!clusterKeep.size) return {siteMonth, siteYear, stats};
+  const keeps = new Set(clusterKeep.values());
+  const monOf = new Map(), yrOf = new Map();
+  siteMonth.forEach(r => { const k = clusterKeep.get(r[0]); const g = k != null ? k : (keeps.has(r[0]) ? r[0] : null); if(g == null) return; if(!monOf.has(g)) monOf.set(g, []); monOf.get(g).push(r); });
+  siteYear.forEach(r => { const k = clusterKeep.get(r[0]); const g = k != null ? k : (keeps.has(r[0]) ? r[0] : null); if(g == null) return; if(!yrOf.has(g)) yrOf.set(g, []); yrOf.get(g).push(r); });
+  const newMon = [], newYr = [], r2 = x => Math.round(x*100)/100;
+  keeps.forEach(g => {
+    const rows = monOf.get(g) || []; if(!rows.length) return;
+    // own rows first, so the representative well's own values win ties
+    rows.sort((a, b) => (a[0] === g ? 0 : 1) - (b[0] === g ? 0 : 1));
+    const byM = new Map(), yAdd = new Map();
+    rows.forEach(r => {
+      const mk = r[1]*12 + r[2] - 1; let L = byM.get(mk); if(!L){ L = []; byM.set(mk, L); }
+      if(L.some(x => Math.abs(x[3] - r[3]) <= 0.05)){ if(r[0] !== g) stats.monthsDup++; return; }
+      L.push(r); if(r[0] !== g){ stats.monthsAdded++; if(!yAdd.has(r[1])) yAdd.set(r[1], new Set()); yAdd.get(r[1]).add(r[0]); }
+    });
+    if(!yAdd.size) return;
+    stats.wells++;
+    const ys = new Map();
+    byM.forEach((L, mk) => {
+      let s = 0, n = 0; L.forEach(x => { s += x[3]*x[4]; n += x[4]; });
+      newMon.push([g, Math.floor(mk/12), mk % 12 + 1, r2(s/n), n]);
+      const y = Math.floor(mk/12); let Y = ys.get(y); if(!Y){ Y = [0, 0, Infinity, -Infinity]; ys.set(y, Y); } Y[0] += s; Y[1] += n;
+    });
+    (yrOf.get(g) || []).forEach(r => { const Y = ys.get(r[1]); if(!Y) return; if(r[0] === g || (yAdd.get(r[1]) && yAdd.get(r[1]).has(r[0]))){ Y[2] = Math.min(Y[2], r[4]); Y[3] = Math.max(Y[3], r[5]); } });
+    ys.forEach((Y, y) => newYr.push([g, y, r2(Y[0]/Y[1]), Y[1], isFinite(Y[2]) ? Y[2] : r2(Y[0]/Y[1]), isFinite(Y[3]) ? Y[3] : r2(Y[0]/Y[1])]));
+    stats.replace = stats.replace || new Set(); stats.replace.add(g);
+  });
+  if(!stats.wells) return {siteMonth, siteYear, stats};
+  const rp = stats.replace;
+  const sm = siteMonth.filter(r => !rp.has(r[0])).concat(newMon).sort((a,b)=>a[0]-b[0] || a[1]-b[1] || a[2]-b[2]);
+  const sy = siteYear.filter(r => !rp.has(r[0])).concat(newYr).sort((a,b)=>a[0]-b[0] || a[1]-b[1]);
+  return {siteMonth: sm, siteYear: sy, stats};
+}
 function applyReadingQuality(){
-  const c = BOOT.collapse(readPass());
+  let c = BOOT.collapse(readPass());
+  mergeApplied = state.filters.multiAgency === 'merge' && clusterKeep.size > 0;
+  if(mergeApplied){
+    const m = mergeClusterRows(c.siteMonth, c.siteYear); c = m;
+    window._mergeStats = m.stats;
+    const el = document.getElementById('merge-note');
+    if(el) el.textContent = `Now: ${m.stats.wells.toLocaleString()} merged wells gained ${m.stats.monthsAdded.toLocaleString()} months from their partner agencies; ${m.stats.monthsDup.toLocaleString()} duplicate months were counted once.`;
+  } else { const el = document.getElementById('merge-note'); if(el) el.textContent = ''; }
   SITE_MONTH = c.siteMonth; SITE_YEAR = c.siteYear;
   BOOT.finalize(SITES, SITE_YEAR);
   buildSiteMaps();
