@@ -528,16 +528,7 @@ input[type="range"]{accent-color:var(--accent); width:100%;}
       </div>
       <div class="section">
         <h4>Multi-agency wells</h4>
-        <select class="selfield" id="multi-agency-select">
-          <option value="all">All wells</option>
-          <option value="only">Only wells measured by NMBGMR + another agency</option>
-          <option value="exclude">Exclude multi-agency wells</option>
-          <option value="keepNm">De-duplicate: keep NMBGMR record only</option>
-          <option value="keepOther">De-duplicate: keep other-agency record only</option>
-          <option value="merge" selected>Merge: one well per cluster with every agency's readings (duplicates counted once)</option>
-          <option value="dedupe">De-duplicate: one well per cluster, its own record only (NMBGMR first, else longest record)</option>
-        </select>
-        <p class="hint">Links come from the NM Unified Water Data API's cross-agency clusters (and NMBGMR's cross-reference IDs); <span id="multi-count">692</span> wells are linked. The same physical well can appear twice (once per agency); <b>Merge</b> (default) combines the agencies' records into one well, listed under NMBGMR where it has one, else the longest record. A month that two agencies report with the same value (within 0.05 ft) is the same measurement stored twice, so it is counted once; different values in the same month are both kept. <span id="merge-note"></span></p>
+        <p class="hint">Links come from the NM Unified Water Data API's cross-agency clusters (and NMBGMR's cross-reference IDs); <span id="multi-count">692</span> wells are linked. The same physical well can appear once per agency, so each linked set is combined into one well with every agency's readings, listed under NMBGMR where it has one, else the longest record. A month that two agencies report with the same value (within 0.05 ft) is the same measurement stored twice, so it is counted once; different values in the same month are both kept. <span id="merge-note"></span></p>
       </div>
 
       <div class="section" id="sec-readq">
@@ -1047,7 +1038,7 @@ input[type="range"]{accent-color:var(--accent); width:100%;}
       <h3 id="h-prep">Preparing readings</h3>
       <ul>
         <li><b>Reading quality:</b> uses the API's qualifier, approval status and measurement type per reading. The options keep static levels only, drop pumping or otherwise affected readings, keep approved data only, or include or exclude continuous-logger readings.</li>
-        <li><b>Multi-agency wells:</b> one physical well can appear under two agencies. The default (<b>Merge</b>) makes each cross-agency cluster one well carrying every agency's readings, listed under NMBGMR where it has one, else under the longest record. A month that two agencies report with the same monthly value (within 0.05 ft) is the same measurement stored twice and is counted once; different values in the same month are both kept. Since the composite uses one value per month, a duplicate can never count twice. Other options keep only one agency's record, or exclude or isolate multi-agency wells. The links come from the API's cross-agency clusters and NMBGMR cross-reference IDs.</li>
+        <li><b>Multi-agency wells:</b> one physical well can appear under two agencies. Each cross-agency cluster is always merged into one well carrying every agency's readings, listed under NMBGMR where it has one, else under the longest record. A month that two agencies report with the same monthly value (within 0.05 ft) is the same measurement stored twice and is counted once; different values in the same month are both kept. Since the composite uses one value per month, a duplicate can never count twice. The links come from the API's cross-agency clusters and NMBGMR cross-reference IDs.</li>
         <li><b>Likely data-entry errors</b> (Data quality): a monthly or yearly value is flagged when it lies outside both of its neighbours by at least <i>t</i> × 25 ft and by more than <i>t</i> × √<i>n</i> of the neighbours' size (<i>n</i> = readings behind the value), and by more than 1.5 times the gap between the neighbours. <i>t</i> = 0.6 (Lenient, default), 0.4 (Moderate) or 0.25 (Strict). Flagged values are left out; the table lists them.</li>
         <li><b>Season:</b> only readings in the chosen months count, before anything else is computed. A range across the new year counts as one season: Winter (Nov–Feb) 2020 is Nov–Dec 2019 plus Jan–Feb 2020. Winter levels are least affected by irrigation pumping.</li>
         <li><b>Water years</b> (optional): October–September, labelled by the year it ends, as in Myers (2022).</li>
@@ -2801,9 +2792,8 @@ document.getElementById('depth-require').addEventListener('change', e=>{
   state.filters.depthRequire = e.target.checked;
   recomputeActiveSet();
 });
-document.getElementById('multi-agency-select').addEventListener('change', e=>{ state.filters.multiAgency = e.target.value; if(!syncMerge()) recomputeActiveSet(); });
 document.getElementById('reset-filters').addEventListener('click', ()=>{
-  state.filters = defaultFilters(); state._selSig = null; if(typeof afterFilterReset==='function') afterFilterReset(); document.getElementById('multi-agency-select').value='merge'; syncMerge();
+  state.filters = defaultFilters(); state._selSig = null; if(typeof afterFilterReset==='function') afterFilterReset(); syncMerge();
   document.querySelectorAll('#source-list input[type=checkbox], #aquifer-list input[type=checkbox], #studyarea-list input[type=checkbox], #formation-list input[type=checkbox], #usgsaq-list input[type=checkbox]').forEach(cb=>cb.checked=true);
   ['depth-min','depth-max','dtw-min','dtw-max','year-min','year-max','min-years'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('depth-require').checked=false;
@@ -2820,11 +2810,7 @@ function passesFilters(s){
   if(rec[3]>=0 && !f.sources.has(rec[3])) return false;
   if(f.multiAgency && f.multiAgency !== 'all'){
     const multi = isMultiAgency(s);
-    if(f.multiAgency === 'only' && !multi) return false;
-    if(f.multiAgency === 'exclude' && multi) return false;
-    if(f.multiAgency === 'keepNm' && nmbgmrOfOther.has(s)) return false;      // drop the partner-agency copy
-    if(f.multiAgency === 'keepOther' && otherOfNmbgmr.has(s)) return false;   // drop the NMBGMR copy
-    if((f.multiAgency === 'dedupe' || f.multiAgency === 'merge') && clusterDropSet.has(s)) return false;     // one well per cross-agency cluster
+    if(clusterDropSet.has(s)) return false;     // its readings are merged into the well that represents its cluster
   }
   {
     const ae = rec[15];
@@ -2993,7 +2979,7 @@ function resetEverything(keepArea){
   }
 
   // filters back to defaults
-  state.filters = defaultFilters(); state._selSig = null; if(typeof afterFilterReset==='function') afterFilterReset(); { const ms=document.getElementById('multi-agency-select'); if(ms) ms.value='merge'; syncMerge(); }
+  state.filters = defaultFilters(); state._selSig = null; if(typeof afterFilterReset==='function') afterFilterReset(); syncMerge();
   document.querySelectorAll('#source-list input[type=checkbox], #aquifer-list input[type=checkbox], #studyarea-list input[type=checkbox], #formation-list input[type=checkbox], #usgsaq-list input[type=checkbox]').forEach(cb=>cb.checked=true);
   ['depth-min','depth-max','dtw-min','dtw-max','year-min','year-max','min-years'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('depth-require').checked=false;

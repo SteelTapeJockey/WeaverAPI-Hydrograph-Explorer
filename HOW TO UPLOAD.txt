@@ -1,0 +1,10 @@
+1. Go to github.com/steeltapejockey/Composite-Hydrograph-Dashboard
+2. Click "Add file" > "Upload files".
+3. Drag in index.html, nm-site-metadata.json, literature-readings.csv and the kriged folder.
+4. Click "Commit changes".
+5. After a few minutes, open steeltapejockey.github.io/Composite-Hydrograph-Dashboard
+
+Already uploaded the rest? This time only index.html and literature-readings.csv are new.
+
+literature-readings.csv = readings from NMBGMR open-file reports that the API doesn't have yet.
+The tool skips any reading the API already has, so once the API takes them in, delete this file.
