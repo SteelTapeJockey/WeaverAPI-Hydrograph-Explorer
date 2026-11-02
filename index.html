@@ -341,6 +341,21 @@ button.btn.active{background:var(--accent-soft); border-color:var(--accent); col
   display:flex; align-items:center; justify-content:center; padding:24px;
 }
 #flags-modal.hidden{display:none;}
+#help-modal{position:fixed; inset:0; z-index:5000; background:rgba(20,25,18,.5); display:flex; align-items:center; justify-content:center; padding:24px;}
+#help-modal.hidden{display:none;}
+#help-card{background:var(--surface-1); border-radius:10px; box-shadow:var(--shadow); width:min(900px, 100%); max-height:90vh; display:flex; flex-direction:column; overflow:hidden;}
+#help-head{display:flex; align-items:center; gap:10px; padding:14px 18px 8px; border-bottom:1px solid var(--border);}
+#help-head .spacer{flex:1;}
+#help-head h5{margin:0; font-size:16px; font-family:var(--font-display); font-weight:700; color:var(--ink-1); text-transform:none; letter-spacing:0;}
+#help-body{overflow-y:auto; padding:6px 22px 22px; font-size:13.5px; line-height:1.55; color:var(--ink-1);}
+#help-body h3{font-family:var(--font-display); font-size:15.5px; margin:20px 0 6px; color:var(--ink-1); scroll-margin-top:8px;}
+#help-body ul, #help-body ol{padding-left:20px; margin:4px 0 8px;} #help-body li{margin:3px 0;}
+#help-body code{font-family:var(--font-mono); font-size:12px; background:var(--surface-2, rgba(0,0,0,.05)); padding:0 3px; border-radius:3px;}
+#help-body a{color:var(--accent, #1f6f5c);}
+#help-toc{display:flex; flex-wrap:wrap; gap:4px 12px; padding:8px 0 4px; font-size:12.5px; border-bottom:1px solid var(--border);}
+#help-toc a{text-decoration:none;}
+.help-note{background:var(--surface-2, rgba(0,0,0,.04)); border-left:3px solid var(--accent, #1f6f5c); padding:6px 10px; font-size:12.5px;}
+.help-refs li{font-size:12.5px; padding-left:1.5em; text-indent:-1.5em; list-style:none;} .help-refs{padding-left:0 !important;}
 #flags-modal-card{
   background:var(--surface-1); border-radius:10px; box-shadow:var(--shadow);
   width:min(820px, 100%); max-height:85vh; display:flex; flex-direction:column; overflow:hidden;
@@ -422,7 +437,7 @@ input[type="range"]{accent-color:var(--accent); width:100%;}
   <div class="pill live" id="live-pill" style="cursor:pointer;" title="Live data from the NM Unified Water Data API">Live data: connecting…</div>
   <div class="pill" id="selcount-pill" style="display:none;"></div>
   <button class="icon" id="theme-toggle" title="Toggle light/dark">◐</button>
-  <button class="icon" id="help-toggle" title="About this data">?</button>
+  <button class="icon" id="help-toggle" title="Help: methods, data and references">?</button>
 </div>
 
 <div id="body">
@@ -994,6 +1009,145 @@ input[type="range"]{accent-color:var(--accent); width:100%;}
   </div>
 </div>
 
+<div id="help-modal" class="hidden" role="dialog" aria-label="Help: methods, data and references">
+  <div id="help-card">
+    <div id="help-head">
+      <h5>Help: methods, data and references</h5>
+      <div class="spacer"></div>
+      <button class="icon" id="help-close" title="Close">✕</button>
+    </div>
+    <div id="help-body">
+      <nav id="help-toc">
+        <a href="#h-start">Quick start</a><a href="#h-data">Data sources</a><a href="#h-prep">Preparing readings</a><a href="#h-elev">Depth and elevation</a>
+        <a href="#h-comp">Composite hydrograph</a><a href="#h-trend">Trends</a><a href="#h-groups">Groups and clusters</a><a href="#h-krig">Kriged basin average</a>
+        <a href="#h-files">Your own files</a><a href="#h-export">Exports</a><a href="#h-limits">Limitations</a><a href="#h-refs">References</a>
+      </nav>
+
+      <h3 id="h-start">Quick start</h3>
+      <ol>
+        <li><b>Select wells</b> (Select Area tab): a county, HUC-8 or HUC-10, an aquifer area, a drawn polygon, or clicked wells.</li>
+        <li><b>Filter</b> (Data filters tab): source, depth, period of record, aquifer, reading quality and so on.</li>
+        <li><b>Read the chart</b>: the composite hydrograph of the selected wells, with the number of wells behind each year as grey bars (right-hand axis).</li>
+        <li><b>Adjust the method</b> in the panel under the chart: method, season, minimum wells per year, record length, depth or elevation.</li>
+      </ol>
+      <p>Nothing is drawn until wells are selected, so the page opens quickly. Well points show from zoom level 9 in, or for the selection.</p>
+
+      <h3 id="h-data">Data sources</h3>
+      <ul>
+        <li><b>Water levels (live):</b> the NM Unified Water Data API (wells and depth-to-water readings). It merges USGS-NWIS, the NM Bureau of Geology and Mineral Resources (NMBGMR), NM OSE/ISC SensorThings feeds (Albuquerque, Bernalillo County, PVACD, EBID, NMOSE-Roswell), the ISC Seven Rivers network and the Water Quality Portal. The readings are saved in your browser, refreshed with new readings on later visits and downloaded again in full every 30 days. A download that comes back empty or short never replaces the saved copy.</li>
+        <li><b>Readings from published reports:</b> <code>literature-readings.csv</code> holds readings from NMBGMR open-file reports that the API does not have yet, from the "OFR water levels vs API" comparison workbook (27,838 readings at 676 wells, 31 reports). They are added to the matching wells as manual readings. A reading is skipped when that well's month already holds the same value (±0.05 ft), so as the API takes these readings in, the file adds less and less. Readings at wells not in the API are not included because most have no location.</li>
+        <li><b>Well attributes:</b> <code>nm-site-metadata.json</code>: aquifer extent (a refined 2-D aquifer-boundary dataset), aquifer-mapping study area, geologic formation, USGS principal aquifer, well depth and water-quality summaries, matched by site ID.</li>
+        <li><b>Land elevation:</b> the site elevation from the API; the USGS 3D Elevation Program (3DEP) 10 m elevation service fills wells without one and checks the others (see <a href="#h-elev">Depth and elevation</a>).</li>
+        <li><b>Boundaries:</b> counties; HUC-8 and HUC-10 watersheds from the USGS Watershed Boundary Dataset.</li>
+        <li><b>Kriged basin averages:</b> precomputed files in <code>kriged/</code> (see <a href="#h-krig">Kriged basin average</a>).</li>
+      </ul>
+      <p class="help-note">Browsers block a page opened from your own computer (a <code>file://</code> address) from reading files beside it. When the page is opened that way, the tool reads <code>kriged/</code> and <code>literature-readings.csv</code> from the GitHub site instead. Everything works fully on the GitHub site.</p>
+
+      <h3 id="h-prep">Preparing readings</h3>
+      <ul>
+        <li><b>Reading quality:</b> uses the API's qualifier, approval status and measurement type per reading. The options keep static levels only, drop pumping or otherwise affected readings, keep approved data only, or include or exclude continuous-logger readings.</li>
+        <li><b>Multi-agency wells:</b> one physical well can appear under two agencies. The default keeps one well per cross-agency cluster (NMBGMR first, else the longest record), so a well is not counted twice. The links come from the API's cross-agency clusters and NMBGMR cross-reference IDs.</li>
+        <li><b>Likely data-entry errors</b> (Data quality): a monthly or yearly value is flagged when it lies outside both of its neighbours by at least <i>t</i> × 25 ft and by more than <i>t</i> × √<i>n</i> of the neighbours' size (<i>n</i> = readings behind the value), and by more than 1.5 times the gap between the neighbours. <i>t</i> = 0.6 (Lenient, default), 0.4 (Moderate) or 0.25 (Strict). Flagged values are left out; the table lists them.</li>
+        <li><b>Season:</b> only readings in the chosen months count, before anything else is computed. A range across the new year counts as one season: Winter (Nov–Feb) 2020 is Nov–Dec 2019 plus Jan–Feb 2020. Winter levels are least affected by irrigation pumping.</li>
+        <li><b>Water years</b> (optional): October–September, labelled by the year it ends, as in Myers (2022).</li>
+        <li><b>Period of record</b> and <b>minimum years</b> filters work on each well's readings inside the chosen years.</li>
+      </ul>
+
+      <h3 id="h-elev">Depth and elevation</h3>
+      <p><b>Depth to water</b> is feet below land surface; larger means a deeper (lower) water table. <b>Water-level elevation</b> = land elevation − depth to water, in feet.</p>
+      <ul>
+        <li>The API site elevation is always used when it exists. Wells without one get the 3DEP land elevation at their location (10 m, bilinear), so they can still be plotted.</li>
+        <li><b>Elevation check:</b> in elevation mode, the selected wells' site elevations are compared with 3DEP. Wells more than 300 ft apart are listed with a warning and marked in the per-well CSV. Their values are not changed. A large difference usually means a wrong location or elevation in the source record. Site elevations also mix vertical datums (NGVD29 and NAVD88, typically a few feet apart in New Mexico).</li>
+      </ul>
+
+      <h3 id="h-comp">Composite hydrograph (the "Over the Top" method)</h3>
+      <p>A composite hydrograph summarizes many wells' own records year by year. Nothing is interpolated between wells or shifted between years. For the selected wells:</p>
+      <ol>
+        <li><b>Annual value per well:</b> the median of the well's monthly values in each year (default), or the reading-weighted yearly mean.</li>
+        <li><b>Spike filter:</b> an annual value is dropped when it differs from both neighbouring years by more than 65 ft per year (adjustable; 0 = off). End years need only their one neighbour.</li>
+        <li><b>Record rules:</b> a well needs at least 5 years with data spanning at least 8 years inside the period shown (both adjustable).</li>
+        <li><b>Put wells on a common scale</b>, so deep and shallow wells count equally. In each case "up" means more water.
+          <ul>
+            <li><b>Normal score</b> (default, the Standardised Groundwater level Index idea of Bloomfield and Marchant, 2013): each well's annual values are ranked, <i>r</i> = 1…<i>n</i>, and converted with Blom's formula: <i>z</i> = Φ<sup>−1</sup>((<i>r</i> − 3/8) / (<i>n</i> + 1/4)), where Φ<sup>−1</sup> is the inverse standard normal. Robust to outliers and skew.</li>
+            <li><b>Z-score:</b> <i>z</i> = (<i>x</i> − mean) / standard deviation of the well's annual values.</li>
+            <li><b>Chain-linked change (ft):</b> the composite starts at 0. Each year is linked to the earlier plotted year that shares the most wells, and its step is the median (or mean) change of the wells measured in both years. The result is cumulative change in feet. It keeps real units but can drift where few wells link.</li>
+          </ul>
+          For depth to water, values are multiplied by −1 before standardizing, so a rising water table plots upward.</li>
+        <li><b>Composite:</b> for each year, the median (dashed) and mean (solid) across the wells with a value that year. A year with fewer wells than <i>Min. wells per year</i> (default 5) is left empty and its bar turns red. Years with fewer than 10 wells get hollow markers.</li>
+        <li><b>Uncertainty band:</b> 95% bootstrap range of the yearly median. Wells are resampled with replacement (default 200 draws, reduced automatically for very large selections; Efron and Tibshirani, 1993). It shows how much the result depends on which wells happen to be in the set, not measurement error.</li>
+        <li><b>Wells per year</b> (grey bars, right axis): the number of wells behind each plotted value. For chain-linked, the number of wells linking that year to its partner year.</li>
+      </ol>
+      <p>"Normalize per well" (feet anomaly or USGS % of range, N = −(x − mean)/(max − min) × 100; Myers, 2022, eq. 1) applies to the Overview plot only.</p>
+
+      <h3 id="h-trend">Trends</h3>
+      <ul>
+        <li><b>Theil–Sen slope</b> (Theil, 1950; Sen, 1968): the median of all pairwise slopes between years, in ft per year (or SD per year). Insensitive to outliers.</li>
+        <li><b>Mann–Kendall test</b> (Mann, 1945; Kendall, 1975): the sign of every pair of years gives S; its variance is corrected for ties, and p is two-sided. Annual values are autocorrelated, so p-values are optimistic.</li>
+        <li>Per well: the median slope across wells with a bootstrap 95% CI, the share of wells falling, and the number with p &lt; 0.05. For the composite: the Theil–Sen slope of the yearly median.</li>
+      </ul>
+
+      <h3 id="h-groups">Groups, clusters and season compare</h3>
+      <ul>
+        <li><b>Group by</b> splits the selection (by well depth, depth to water, geologic formation, USGS principal aquifer, aquifer extent or study area) and draws a composite for each group with the same method.</li>
+        <li><b>Hydrograph clusters</b> (Bloomfield et al., 2015): k-means on each well's z-scores over the years with enough wells. A well joins if it covers 60% of those years. Interior gaps are interpolated for the clustering only, never for the plotted lines. k = Number of groups.</li>
+        <li><b>Season compare</b> draws the same wells using each season's months only.</li>
+      </ul>
+
+      <h3 id="h-krig">Kriged basin average (HUC-8 and HUC-10)</h3>
+      <p>Selecting a HUC-8 or HUC-10 adds the <b>basin-average water level</b> to the chain-linked chart: an estimate of the average water-level change over the whole area, not just at the wells. It is an areal-average hydrograph, not a composite. It is precomputed with spatiotemporal regression kriging after Rawling (2021, rev. 2022, NMBGMR OFR-616):</p>
+      <ol>
+        <li><b>Data:</b> the API readings (pulled 2026-11-01) plus the published-report readings; pumping and other disturbed readings dropped; one value per well per year (median); wells at the same spot merged. Two seasons: winter (Nov–Feb, as in OFR-616) and all months.</li>
+        <li><b>Regional trend:</b> a polynomial of the first two principal components of easting, northing and land elevation. Outliers are removed when the standardized residual exceeds 2 and Cook's distance exceeds 4/<i>n</i> (Cook, 1977).</li>
+        <li><b>Space-time variogram</b> of the residuals: sum-metric model (Gräler et al., 2016), spherical in space, exponential in time, with a joint space-time term. Nuggets have floors so the model cannot become falsely certain.</li>
+        <li><b>Calibration:</b> leave-one-out cross-validation; standard errors are multiplied by √(mean squared normalized error), at least 1, so about 95% of left-out readings fall inside their 95% range.</li>
+        <li><b>Change from a base year:</b> block contrast kriging of the change in the areal mean between each year and the HUC-8's best-measured year, over the part of the unit within 5 km of a well. The band is ±1.96 standard errors.</li>
+        <li><b>Quality badge:</b> good, fair or poor, from cross-validation correlation, the calibration factor and a zigzag check. Where the line jumps from year to year more than its range allows (often wells from different aquifers measured in different years), the ranges are widened by that factor and a caution shows.</li>
+      </ol>
+      <p>The line is aligned to the composite in the first shared year. It is read from <code>kriged/winter.json</code> when the season lies within Nov–Feb, otherwise from <code>kriged/all.json</code>. Rebuild scripts are listed in <code>kriged/README.md</code>.</p>
+
+      <h3 id="h-files">Your own files</h3>
+      <ul>
+        <li><b>Add readings from a file:</b> a CSV with <code>source</code> and <code>id</code> (or <code>feature_id</code>), <code>date</code> and <code>depth_to_water</code>, or the OFR-vs-API workbook. Readings are added to wells already in the tool and kept in your browser until removed.</li>
+        <li><b>Reference hydrograph:</b> a CSV of <code>year, change_ft[, se_ft]</code> drawn beside the chain-linked composite.</li>
+        <li><b>Upload an area:</b> a polygon to select wells.</li>
+      </ul>
+
+      <h3 id="h-export">Exports</h3>
+      <p>Composite CSV (year, median, mean, band, wells per year, method; optionally per-well columns and the basin average), per-well statistics CSV (years, span, Theil–Sen, Mann–Kendall p, spike years dropped, cluster, site and 3DEP elevations, elevation check), raw readings CSV, the flagged-readings table, and a PNG of the chart with the method in its title block.</p>
+
+      <h3 id="h-limits">Limitations</h3>
+      <ul>
+        <li>The well set changes from year to year. The composite reflects whichever wells were measured, so a shift in where measurements were made can look like a change in water level. Check the bars, and compare with the kriged average.</li>
+        <li>Mixing aquifers (for example shallow and artesian aquifers in the Roswell basin) blends different behaviour. Filter by aquifer or depth, or use hydrograph clusters.</li>
+        <li>Thresholds (65 ft/yr, 5 years over 8, 5 wells per year, 60% coverage) are literature starting values (Jasechko et al., 2024; Bloomfield and Marchant, 2013; Bloomfield et al., 2015), not validated for New Mexico.</li>
+        <li>Mann–Kendall p-values ignore autocorrelation. Kriged averages smooth and can be dominated by one well where data are sparse.</li>
+      </ul>
+
+      <h3 id="h-refs">References</h3>
+      <ul class="help-refs">
+        <li>Blom, G., 1958, Statistical estimates and transformed beta-variables: New York, Wiley.</li>
+        <li>Bloomfield, J.P., and Marchant, B.P., 2013, Analysis of groundwater drought building on the standardised precipitation index approach: Hydrology and Earth System Sciences, v. 17, p. 4769–4787.</li>
+        <li>Bloomfield, J.P., Marchant, B.P., Bricker, S.H., and Morgan, R.B., 2015, Regional analysis of groundwater droughts using hydrograph classification: Hydrology and Earth System Sciences, v. 19, p. 4327–4344.</li>
+        <li>Cook, R.D., 1977, Detection of influential observation in linear regression: Technometrics, v. 19, p. 15–18.</li>
+        <li>Efron, B., and Tibshirani, R.J., 1993, An introduction to the bootstrap: New York, Chapman &amp; Hall.</li>
+        <li>Gräler, B., Pebesma, E., and Heuvelink, G., 2016, Spatio-temporal interpolation using gstat: The R Journal, v. 8, p. 204–218.</li>
+        <li>Heuvelink, G.B.M., and Griffith, D.A., 2010, Space-time geostatistics for geography: Geographical Analysis, v. 42, p. 161–179.</li>
+        <li>Jasechko, S., Seybold, H., Perrone, D., Fan, Y., Shamsudduha, M., Taylor, R.G., Fallatah, O., and Kirchner, J.W., 2024, Rapid groundwater decline and some cases of recovery in aquifers globally: Nature, v. 625, p. 715–721.</li>
+        <li>Kendall, M.G., 1975, Rank correlation methods (4th ed.): London, Griffin.</li>
+        <li>Kyriakidis, P.C., and Journel, A.G., 1999, Geostatistical space-time models: a review: Mathematical Geology, v. 31, p. 651–684.</li>
+        <li>Mann, H.B., 1945, Nonparametric tests against trend: Econometrica, v. 13, p. 245–259.</li>
+        <li>Myers, N.C., 2022, Composite regional groundwater hydrographs for selected principal aquifers in New Mexico, 1980–2019: U.S. Geological Survey Open-File Report 2022–1008, 51 p., doi:10.3133/ofr20221008.</li>
+        <li>Rawling, G., 2021 (revised 2022), Evaluation of water-level trends using spatiotemporal kriging in the Mimbres Basin, southwest New Mexico: New Mexico Bureau of Geology and Mineral Resources Open-File Report 616.</li>
+        <li>Sen, P.K., 1968, Estimates of the regression coefficient based on Kendall's tau: Journal of the American Statistical Association, v. 63, p. 1379–1389.</li>
+        <li>Theil, H., 1950, A rank-invariant method of linear and polynomial regression analysis: Proceedings of the Royal Netherlands Academy of Sciences, v. 53, p. 386–392, 521–525, 1397–1412.</li>
+        <li>U.S. Geological Survey, 3D Elevation Program (3DEP) elevation service: elevation.nationalmap.gov.</li>
+        <li>U.S. Geological Survey, Watershed Boundary Dataset (HUC-8 and HUC-10).</li>
+        <li>New Mexico Unified Water Data API; NMBGMR open-file reports (geoinfo.nmt.edu) via the "OFR water levels vs API" workbook.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
 <div id="flags-modal" class="hidden">
   <div id="flags-modal-card">
     <div id="flags-modal-head">
@@ -1462,7 +1616,7 @@ async function krigUpdate(){
   if(state.krig && state.krig.key === key) return;
   const base = await krigBase();
   if(my !== krigSeq) return;
-  if(!base){ if(st) st.textContent = 'Kriged averages were not found next to this page (folder kriged/).'; return; }
+  if(!base){ if(st) st.textContent = location.protocol === 'file:' ? 'This page was opened from your computer, and the browser does not let it read the kriged folder beside it. It then reads the copy on the GitHub site, which was not found there either. Upload the kriged folder to GitHub and open the page from the GitHub site.' : 'Kriged averages were not found next to this page (folder kriged/) or on the GitHub site.'; return; }
   const h8 = huc.slice(0, 8), fk = season + '/' + h8;
   try{
     if(!krigFiles.has(season)){ const r = await fetch(base + season + '.json'); krigFiles.set(season, r.ok ? await r.json() : null); }
@@ -1867,8 +2021,11 @@ async function litLoad(){
   if(box) box.checked = litIsOn();
   if(!litIsOn()){ if(st) st.textContent = 'Off: only API readings (and any file you add below) are used.'; return; }
   try{
-    const r = await fetch('literature-readings.csv', {cache:'no-cache'});
-    if(!r.ok){ if(st) st.textContent = 'No literature-readings.csv found next to this page, so only API readings are used.'; return; }
+    let r = null;
+    for(const u of ['literature-readings.csv', 'https://steeltapejockey.github.io/Composite-Hydrograph-Dashboard/literature-readings.csv']){
+      try{ const x = await fetch(u, {cache:'no-cache'}); if(x.ok){ r = x; break; } }catch(e){}
+    }
+    if(!r){ if(st) st.textContent = location.protocol === 'file:' ? 'This page was opened from your computer, and the browser does not let it read literature-readings.csv beside it; the GitHub site copy was not found either. Upload the file to GitHub and open the page from the GitHub site.' : 'No literature-readings.csv found next to this page, so only API readings are used.'; return; }
     const rows = importRowsFromTable(parseCsv(await r.text()), 'literature-readings.csv');
     const res = BOOT.addReadings(rows);
     if(res.added) applyReadingQuality();
@@ -4360,7 +4517,11 @@ function renderChart(){
           grid:{color:border}, ticks:{color:muted},
           title:{display:true, text: wrapAxisTitle(compositeAxisTitle(), canvas.clientHeight - 60), color:muted}
         },
-        yN:{ position:'right', display:false, min:0, max:maxN*4, grid:{display:false} }
+        yN:{ position:'right', display:true, min:0, max:maxN*3, grid:{display:false},
+             afterBuildTicks: ax => { const st = [1,2,5,10,20,25,50,100,200,250,500,1000,2000,2500,5000,10000].find(v => maxN / v <= 4) || Math.ceil(maxN/4);
+               const t = []; for(let v=0; v<=maxN; v+=st) t.push({value:v}); ax.ticks = t; },
+             ticks:{color:muted, precision:0},
+             title:{display:true, text: o.method === 'chain' ? 'Wells linking each year (grey bars)' : 'Wells per year (grey bars)', color:muted, align:'start'} }
       }
     }
   });
@@ -4529,17 +4690,11 @@ document.getElementById('btn-export-hydrograph').addEventListener('click', ()=>{
 /* -------------------------------------------------------------------- */
 /* 16. Help                                                               */
 /* -------------------------------------------------------------------- */
-document.getElementById('help-toggle').addEventListener('click', ()=>{
-  alert(
-"About this data\n\n"+
-"Source: NM statewide groundwater-level (depth-to-water) monitoring data, merged from USGS-NWIS, NM Bureau of Geology (NMBGMR), NM OSE/ISC SensorThings feeds (Albuquerque, Bernalillo Co., PVACD, EBID, NMOSE-Roswell), Interstate Stream Commission Seven Rivers, and the Water Quality Portal.\n\n"+
-"Each well shown is one monitoring site; the map plots "+NSITES.toLocaleString()+" wells with usable coordinates and dates. Depth-to-water is in feet below ground surface — larger numbers mean a deeper (lower) water table.\n\n"+
-"Composite hydrograph (Over the Top method): pick a set of wells (draw a polygon, pick a county/HUC-8, or click wells). Each well is reduced to one value per year (median of its monthly values), years that jump implausibly are dropped, and only wells with enough years of record are kept. Each well is then standardized (normal scores or z-scores, so deep and shallow wells count equally) or turned into year-to-year changes in feet, and every year with at least the minimum number of wells gets the median across wells, with a 95% bootstrap band. A well counts in every year it was measured; nothing is shifted between years. Wells can also be clustered by hydrograph shape (Group by).\n\n"+
-"Aquifer, formation, and reference elevation come from a separate NM sites table and are matched by site ID ("+COVERAGE.formation+"% of wells have a formation, "+COVERAGE.elevation+"% an elevation). You can toggle the hydrograph between raw depth-to-water and water-surface elevation (elevation minus depth-to-water) in the composite panel.\n\n"+
-"Aquifer extent ("+COVERAGE.extMatched+"% of wells matched) comes from a refined 2-D aquifer-boundary dataset and is the primary aquifer classification used throughout — it drives the Filters-tab aquifer checkboxes, the Select Area picker, and appears first in well popups. The broader USGS/WQP national-code classification (7 categories vs. 59) is also available as a filter, a color-by option and in popups and exports.\n\n"+
-"Season filter: restricts every well's readings to a month range before anything else (annual values, trend, composite) is computed — winter and summer water levels genuinely differ, especially near irrigation. A range that crosses the new year counts as one season: Winter (Nov–Feb) 2020 is Nov–Dec 2019 plus Jan–Feb 2020."
-  );
-});
+document.getElementById('help-toggle').addEventListener('click', ()=> document.getElementById('help-modal').classList.remove('hidden'));
+document.getElementById('help-close').addEventListener('click', ()=> document.getElementById('help-modal').classList.add('hidden'));
+document.getElementById('help-modal').addEventListener('click', e => { if(e.target.id === 'help-modal') e.target.classList.add('hidden'); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape') document.getElementById('help-modal').classList.add('hidden'); });
+document.querySelectorAll('#help-toc a, #help-body a[href^="#h-"]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); const t = document.querySelector(a.getAttribute('href')); if(t) t.scrollIntoView({behavior:'smooth', block:'start'}); }));
 
 /* -------------------------------------------------------------------- */
 /* 17. Init                                                               */
